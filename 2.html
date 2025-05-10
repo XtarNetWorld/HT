@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Full Body Tracking System</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #f5f5f5;
+            min-height: 100vh;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .status-card {
+            width: 100%;
+            max-width: 640px;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+            overflow: hidden;
+        }
+        .status-card-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid #eee;
+        }
+        .status-card-title {
+            margin: 0;
+            font-size: 18px;
+            font-weight: 600;
+        }
+        .status-card-content {
+            padding: 16px 20px;
+        }
+        .status-message {
+            padding: 12px;
+            background-color: #e6f7ff;
+            border-left: 4px solid #1890ff;
+            color: #0050b3;
+            border-radius: 4px;
+        }
+        .container {
+            position: relative;
+            margin: 0 auto;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            max-width: 640px;
+            width: 100%;
+        }
+        #video {
+            display: block;
+            transform: scaleX(-1); /* Mirror the video */
+            width: 100%;
+            height: auto;
+            background-color: #000;
+        }
+        #canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            transform: scaleX(-1); /* Mirror the canvas to match video */
+            width: 100%;
+            height: 100%;
+        }
+        .controls {
+            margin-top: 20px;
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+        }
+        button {
+            padding: 10px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        button:focus {
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.5);
+        }
+        #startBtn {
+            background-color: #10b981;
+            color: white;
+        }
+        #startBtn:hover {
+            background-color: #059669;
+        }
+        #startBtn:disabled {
+            background-color: #d1d5db;
+            cursor: not-allowed;
+        }
+        #stopBtn {
+            background-color: #ef4444;
+            color: white;
+        }
+        #stopBtn:hover {
+            background-color: #dc2626;
+        }
+        #stopBtn:disabled {
+            background-color: #d1d5db;
+            cursor: not-allowed;
+        }
+        .loading-indicator {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-top: 20px;
+        }
+        .loading-spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            border-left-color: #10b981;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .stats {
+            margin-top: 16px;
+            padding: 12px;
+            background-color: #f8fafc;
+            border-radius: 6px;
+            font-size: 14px;
+            color: #475569;
+        }
+        .stats-title {
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        .stats-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 4px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Full Body Tracking System</h1>
+    
+    <div class="status-card">
+        <div class="status-card-header">
+            <h2 class="status-card-title">Status</h2>
+        </div>
+        <div class="status-card-content">
+            <div class="status-message" id="status">Loading MediaPipe Pose model...</div>
+        </div>
+    </div>
+    
+    <div class="container">
+        <video id="video" width="640" height="480" autoplay playsinline></video>
+        <canvas id="canvas" width="640" height="480"></canvas>
+    </div>
+    
+    <div class="controls">
+        <button id="startBtn" disabled>Start Tracking</button>
+        <button id="stopBtn" disabled>Stop Tracking</button>
+    </div>
+
+    <div class="stats" id="stats">
+        <div class="stats-title">Tracking Statistics</div>
+        <div class="stats-item">
+            <span>FPS:</span>
+            <span id="fps">0</span>
+        </div>
+        <div class="stats-item">
+            <span>Objects:</span>
+            <span id="objectCount">4</span>
+        </div>
+        <div class="stats-item">
+            <span>Grabbed:</span>
+            <span id="grabbedCount">0</span>
+        </div>
+    </div>
+
+    <!-- Import MediaPipe libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+
+    <script>
+        // DOM elements
+        const videoElement = document.getElementById('video');
+        const canvasElement = document.getElementById('canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const statusElement = document.getElementById('status');
+        const fpsElement = document.getElementById('fps');
+        const objectCountElement = document.getElementById('objectCount');
+        const grabbedCountElement = document.getElementById('grabbedCount');
+
+        // Variables
+        let camera = null;
+        let pose = null;
+        let isTracking = false;
+        let lastFrameTime = 0;
+        let frameCount = 0;
+        let lastFpsUpdateTime = 0;
+
+        // 2D objects
+        const objects = [
+            { id: 1, type: 'circle', x: 100, y: 100, radius: 30, color: '#FF0000', grabbed: false, hand: null },
+            { id: 2, type: 'rect', x: 500, y: 300, width: 60, height: 60, color: '#00FF00', grabbed: false, hand: null },
+            { id: 3, type: 'circle', x: 300, y: 200, radius: 40, color: '#0000FF', grabbed: false, hand: null },
+            { id: 4, type: 'rect', x: 200, y: 400, width: 80, height: 40, color: '#FFFF00', grabbed: false, hand: null },
+            { id: 5, type: 'circle', x: 400, y: 150, radius: 25, color: '#FF00FF', grabbed: false, hand: null }
+        ];
+
+        // Initialize MediaPipe Pose
+        function initializePoseTracking() {
+            statusElement.textContent = 'Loading MediaPipe Pose model...';
+            
+            pose = new Pose({
+                locateFile: (file) => {
+                    return `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`;
+                }
+            });
+
+            pose.setOptions({
+                modelComplexity: 1,
+                smoothLandmarks: true,
+                enableSegmentation: false,
+                smoothSegmentation: false,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
+
+            pose.onResults(onResults);
+
+            statusElement.textContent = 'Model loaded. Click "Start Tracking" to begin.';
+            startBtn.disabled = false;
+        }
+
+        // Process pose tracking results
+        function onResults(results) {
+            // Calculate FPS
+            const now = performance.now();
+            frameCount++;
+            
+            if (now - lastFpsUpdateTime > 1000) {
+                fpsElement.textContent = Math.round(frameCount * 1000 / (now - lastFpsUpdateTime));
+                frameCount = 0;
+                lastFpsUpdateTime = now;
+            }
+            
+            // Update grabbed objects count
+            const grabbedCount = objects.filter(obj => obj.grabbed).length;
+            grabbedCountElement.textContent = grabbedCount;
+
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+            // Draw pose landmarks and detect interactions
+            if (results.poseLandmarks) {
+                // Draw the pose landmarks
+                drawPose(canvasCtx, results.poseLandmarks);
+
+                // Interaction logic - using wrists for grabbing objects
+                const leftWrist = results.poseLandmarks[15]; // Left wrist
+                const rightWrist = results.poseLandmarks[16]; // Right wrist
+
+                // Check for grabbing with either hand
+                checkGrabbing(leftWrist, 'left');
+                checkGrabbing(rightWrist, 'right');
+            }
+
+            // Draw objects
+            drawObjects(canvasCtx);
+
+            canvasCtx.restore();
+            lastFrameTime = now;
+        }
+
+        // Check if a wrist is grabbing an object
+        function checkGrabbing(wrist, handType) {
+            if (!wrist || wrist.visibility < 0.5) return;
+
+            const wristX = wrist.x * canvasElement.width;
+            const wristY = wrist.y * canvasElement.height;
+
+            // First, check if this hand is already grabbing something
+            let isGrabbing = false;
+            for (const obj of objects) {
+                if (obj.grabbed && obj.hand === handType) {
+                    // Move the object with the hand
+                    obj.x = wristX;
+                    obj.y = wristY;
+                    isGrabbing = true;
+                    break;
+                }
+            }
+
+            // If not already grabbing, check if we can grab a new object
+            if (!isGrabbing) {
+                for (const obj of objects) {
+                    if (obj.grabbed) continue; // Skip objects grabbed by other hand
+
+                    let isOver = false;
+                    if (obj.type === 'circle') {
+                        isOver = Math.hypot(wristX - obj.x, wristY - obj.y) < obj.radius;
+                    } else if (obj.type === 'rect') {
+                        isOver = (
+                            wristX > obj.x - obj.width / 2 &&
+                            wristX < obj.x + obj.width / 2 &&
+                            wristY > obj.y - obj.height / 2 &&
+                            wristY < obj.y + obj.height / 2
+                        );
+                    }
+
+                    if (isOver) {
+                        obj.grabbed = true;
+                        obj.hand = handType;
+                        obj.x = wristX;
+                        obj.y = wristY;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Draw the pose skeleton
+        function drawPose(ctx, landmarks) {
+            // Define connections for the pose skeleton
+            const connections = [
+                // Torso
+                [11, 12], [12, 24], [24, 23], [23, 11],
+                // Right arm
+                [12, 14], [14, 16],
+                // Left arm
+                [11, 13], [13, 15],
+                // Right leg
+                [24, 26], [26, 28], [28, 32], [32, 30], [30, 28],
+                // Left leg
+                [23, 25], [25, 27], [27, 31], [31, 29], [29, 27],
+                // Face
+                [0, 1], [1, 2], [2, 3], [3, 7], [7, 8], [8, 9], [9, 10], [10, 0]
+            ];
+
+            // Draw connections
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = '#00B5FF';
+
+            for (const [i, j] of connections) {
+                const a = landmarks[i];
+                const b = landmarks[j];
+
+                if (a && b && a.visibility > 0.5 && b.visibility > 0.5) {
+                    ctx.beginPath();
+                    ctx.moveTo(a.x * canvasElement.width, a.y * canvasElement.height);
+                    ctx.lineTo(b.x * canvasElement.width, b.y * canvasElement.height);
+                    ctx.stroke();
+                }
+            }
+
+            // Draw landmarks
+            for (const landmark of landmarks) {
+                if (landmark.visibility > 0.5) {
+                    const x = landmark.x * canvasElement.width;
+                    const y = landmark.y * canvasElement.height;
+
+                    ctx.fillStyle = '#FF0000';
+                    ctx.beginPath();
+                    ctx.arc(x, y, 5, 0, 2 * Math.PI);
+                    ctx.fill();
+                }
+            }
+
+            // Highlight wrists for better visibility
+            const leftWrist = landmarks[15];
+            const rightWrist = landmarks[16];
+
+            if (leftWrist && leftWrist.visibility > 0.5) {
+                const x = leftWrist.x * canvasElement.width;
+                const y = leftWrist.y * canvasElement.height;
+                
+                ctx.fillStyle = '#FF00FF';
+                ctx.beginPath();
+                ctx.arc(x, y, 8, 0, 2 * Math.PI);
+                ctx.fill();
+                
+                ctx.fillStyle = 'white';
+                ctx.font = '12px Arial';
+                ctx.fillText('L', x - 4, y + 4);
+            }
+
+            if (rightWrist && rightWrist.visibility > 0.5) {
+                const x = rightWrist.x * canvasElement.width;
+                const y = rightWrist.y * canvasElement.height;
+                
+                ctx.fillStyle = '#00FFFF';
+                ctx.beginPath();
+                ctx.arc(x, y, 8, 0, 2 * Math.PI);
+                ctx.fill();
+                
+                ctx.fillStyle = 'white';
+                ctx.font = '12px Arial';
+                ctx.fillText('R', x - 4, y + 4);
+            }
+        }
+
+        // Draw interactive objects
+        function drawObjects(ctx) {
+            for (const obj of objects) {
+                // Change color if grabbed
+                ctx.fillStyle = obj.grabbed ? (obj.hand === 'left' ? '#FF00FF' : '#00FFFF') : obj.color;
+
+                if (obj.type === 'circle') {
+                    ctx.beginPath();
+                    ctx.arc(obj.x, obj.y, obj.radius, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    // Add a border
+                    ctx.strokeStyle = 'rgba(0, 0, 0, 0.3)';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                    
+                    // Add object ID
+                    ctx.fillStyle = 'white';
+                    ctx.font = '16px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(obj.id.toString(), obj.x, obj.y);
+                } else if (obj.type === 'rect') {
+                    ctx.fillRect(
+                        obj.x - obj.width / 2,
+                        obj.y - obj.height / 2,
+                        obj.width,
+                        obj.height
+                    );
+                    
+                    // Add a border
+                    ctx.strokeStyle = 'rgba(0, 0, 0, 0.3)';
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(
+                        obj.x - obj.width / 2,
+                        obj.y - obj.height / 2,
+                        obj.width,
+                        obj.height
+                    );
+                    
+                    // Add object ID
+                    ctx.fillStyle = 'white';
+                    ctx.font = '16px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(obj.id.toString(), obj.x, obj.y);
+                }
+            }
+        }
+
+        // Start camera and pose tracking
+        function startTracking() {
+            if (camera) return;
+
+            statusElement.textContent = 'Starting camera...';
+            
+            camera = new Camera(videoElement, {
+                onFrame: async () => {
+                    if (isTracking && pose) {
+                        await pose.send({image: videoElement});
+                    }
+                },
+                width: 640,
+                height: 480
+            });
+            
+            camera.start()
+                .then(() => {
+                    isTracking = true;
+                    statusElement.textContent = 'Body tracking active. Use your wrists to grab objects!';
+                    startBtn.disabled = true;
+                    stopBtn.disabled = false;
+                    lastFpsUpdateTime = performance.now();
+                    frameCount = 0;
+                })
+                .catch(error => {
+                    statusElement.textContent = `Error: ${error.message}`;
+                    console.error('Error starting camera:', error);
+                });
+        }
+
+        // Stop camera and pose tracking
+        function stopTracking() {
+            if (camera) {
+                camera.stop();
+                camera = null;
+                isTracking = false;
+                
+                canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+                
+                statusElement.textContent = 'Body tracking stopped';
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+
+                // Reset objects
+                objects.forEach(obj => {
+                    obj.grabbed = false;
+                    obj.hand = null;
+                });
+                
+                fpsElement.textContent = '0';
+                grabbedCountElement.textContent = '0';
+            }
+        }
+
+        // Handle window resize
+        function handleResize() {
+            const container = canvasElement.parentElement;
+            if (container) {
+                const containerWidth = container.clientWidth;
+                
+                // Maintain aspect ratio
+                const aspectRatio = 4/3;
+                const height = containerWidth / aspectRatio;
+                
+                // Update canvas and video dimensions
+                canvasElement.width = containerWidth;
+                canvasElement.height = height;
+                
+                // Redraw if we're tracking
+                if (isTracking && pose) {
+                    pose.send({image: videoElement});
+                }
+            }
+        }
+
+        // Event listeners
+        startBtn.addEventListener('click', startTracking);
+        stopBtn.addEventListener('click', stopTracking);
+        window.addEventListener('resize', handleResize);
+
+        // Initialize the application
+        document.addEventListener('DOMContentLoaded', () => {
+            startBtn.disabled = true;
+            stopBtn.disabled = true;
+            
+            // Wait for MediaPipe libraries to load
+            if (window.Pose) {
+                initializePoseTracking();
+            } else {
+                // Poll until Pose is available
+                const checkPoseLoaded = setInterval(() => {
+                    if (window.Pose) {
+                        clearInterval(checkPoseLoaded);
+                        initializePoseTracking();
+                    }
+                }, 100);
+            }
+            
+            // Initial resize
+            handleResize();
+        });
+    </script>
+</body>
+</html>
